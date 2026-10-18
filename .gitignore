@@ -1,0 +1,11 @@
+.env
+.run/
+logs/
+data/*.sqlite3
+data/*.sqlite3-shm
+data/*.sqlite3-wal
+__pycache__/
+*.py[cod]
+tsconfig.tsbuildinfo
+node_modules/
+dist/
