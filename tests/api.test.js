@@ -14,7 +14,7 @@ const sample = {
 test('sample email produces a high score and explainable findings', () => {
   const result = analyzeEmail(sample);
   assert.equal(result.score, 100);
-  assert.equal(result.risk, 'High');
+  assert.equal(result.risk, 'Critical');
   assert.equal(result.findings.length, 4);
   assert.ok(result.findings.some(f => f.title === 'Possible brand impersonation'));
 });
@@ -36,7 +36,8 @@ describe('local HTTP API with temporary SQLite database', () => {
   let server; let base; let temp;
   before(async () => {
     temp = fs.mkdtempSync(path.join(os.tmpdir(), 'cyberguard-test-'));
-    server = createServer({ dbPath: path.join(temp, 'test.sqlite3') });
+    server = createServer({ dbPath: path.join(temp, 'test.sqlite3'), cloudEnabled: true,
+      cloudReviewer: async () => ({ provider: 'Test', model: 'fake', text: 'Verify unexpected requests.', createdAt: '2026-01-01T00:00:00.000Z' }) });
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
     base = `http://127.0.0.1:${server.address().port}`;
   });
@@ -51,7 +52,7 @@ describe('local HTTP API with temporary SQLite database', () => {
     return { status: response.status, data: await response.json() };
   }
   test('health check responds with SQLite status', async () => {
-    assert.deepEqual((await call('/api/health')).data, { status: 'ok', database: 'sqlite' });
+    assert.deepEqual((await call('/api/health')).data, { status: 'ok', database: 'sqlite', cloudAI: true });
   });
   test('analyze persists, history lists, feedback updates, delete removes', async () => {
     const created = await call('/api/analyze', 'POST', sample);
@@ -68,5 +69,12 @@ describe('local HTTP API with temporary SQLite database', () => {
     const result = await call('/api/analyze', 'POST', { ...sample, sender: 'bad' });
     assert.equal(result.status, 400);
     assert.match(result.data.error, /valid email/);
+  });
+  test('cloud opt-in review is persisted as advisory without replacing local score', async () => {
+    const created = await call('/api/analyze', 'POST', { ...sample, useCloudAI: true });
+    assert.equal(created.status, 201);
+    assert.equal(created.data.score, 100);
+    assert.equal(created.data.cloudReview.provider, 'Test');
+    assert.equal((await call('/api/history')).data.items[0].cloudReview.text, 'Verify unexpected requests.');
   });
 });

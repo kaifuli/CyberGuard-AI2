@@ -5,10 +5,12 @@ Set-Location $root
 
 $apiPort = 8000
 $webPort = 5173
+$sqlitePath = 'data\cyberguard.sqlite3'
 if (Test-Path '.env') {
     foreach ($line in Get-Content '.env') {
         if ($line -match '^\s*API_PORT\s*=\s*(\d+)') { $apiPort = [int]$Matches[1] }
         if ($line -match '^\s*VITE_PORT\s*=\s*(\d+)') { $webPort = [int]$Matches[1] }
+        if ($line -match '^\s*SQLITE_PATH\s*=\s*(.*?)\s*$') { $sqlitePath = $Matches[1] }
     }
 }
 if ($apiPort -lt 1 -or $apiPort -gt 65535 -or $webPort -lt 1 -or $webPort -gt 65535) {
@@ -24,6 +26,7 @@ $apiUrl = "http://127.0.0.1:$apiPort/api/health"
 $webUrl = "http://127.0.0.1:$webPort/"
 $apiReady = $false
 try { $null = Invoke-RestMethod -Uri $apiUrl -TimeoutSec 1; $apiReady = $true } catch {}
+$apiWasAlreadyRunning = $apiReady
 if (-not $apiReady) {
     $api = Start-Process -FilePath (Get-Command node).Source -ArgumentList @('server/app.js') -WorkingDirectory $root -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $root 'logs\api.log') -RedirectStandardError (Join-Path $root 'logs\api-error.log')
     Set-Content -LiteralPath '.run\api.pid' -Value $api.Id
@@ -39,6 +42,7 @@ if (-not $apiReady) {
 
 $webReady = $false
 try { $null = Invoke-WebRequest -Uri $webUrl -TimeoutSec 1 -UseBasicParsing; $webReady = $true } catch {}
+$webWasAlreadyRunning = $webReady
 if (-not $webReady) {
     $node = (Get-Command node).Source
     $vite = Join-Path $root 'node_modules\vite\bin\vite.js'
@@ -55,7 +59,9 @@ if (-not $webReady) {
 }
 Write-Host "CyberGuard AI is ready at $webUrl" -ForegroundColor Green
 Write-Host "API: $apiUrl   (bound to 127.0.0.1)"
-Write-Host "SQLite: $(Join-Path $root 'data\cyberguard.sqlite3')"
-Write-Host 'Stop both services with: .\stop-local.ps1'
+if ([IO.Path]::IsPathRooted($sqlitePath)) { $resolvedDbPath = $sqlitePath } else { $resolvedDbPath = Join-Path $root $sqlitePath }
+Write-Host "SQLite: $resolvedDbPath"
+if ($apiWasAlreadyRunning -or $webWasAlreadyRunning) { Write-Host 'One or more services were already running. .\stop-local.ps1 stops only instances this script started; stop pre-existing services in their original terminal.' }
+else { Write-Host 'Stop both services with: .\stop-local.ps1' }
 if ($OpenBrowser) { Start-Process $webUrl }
 
